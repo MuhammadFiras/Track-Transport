@@ -78,8 +78,8 @@ class VINModel {
             // Parse JSON response
             const data = await response.json();
 
-            // Extract vehicle data from Results array
-            const vehicleData = this.parseVehicleData(data);
+            // Extract vehicle data from Results array (include VIN)
+            const vehicleData = this.parseVehicleData(data, cleanVin);
 
             // Validate extracted data
             if (!vehicleData.make || !vehicleData.model) {
@@ -112,16 +112,17 @@ class VINModel {
      * Parses NHTSA API response and extracts specific vehicle data
      * Looks for: Make (VariableId: 26), Model (VariableId: 28), Year (VariableId: 29)
      * @param {object} apiResponse - Raw API response from NHTSA
-     * @returns {object} - Extracted vehicle data
+     * @param {string} vin - The Vehicle Identification Number
+     * @returns {object} - Extracted vehicle data including VIN
      */
-    parseVehicleData(apiResponse) {
+    parseVehicleData(apiResponse, vin) {
         let make = null;
         let model = null;
         let year = null;
 
         // Validate response structure
         if (!apiResponse.Results || !Array.isArray(apiResponse.Results)) {
-            return { make, model, year };
+            return { vin, make, model, year };
         }
 
         // Iterate through Results array to extract specific VariableIds
@@ -143,6 +144,7 @@ class VINModel {
         });
 
         return {
+            vin,
             make,
             model,
             year: year || 'Unknown'

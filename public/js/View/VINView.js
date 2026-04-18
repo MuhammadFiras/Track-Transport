@@ -98,9 +98,13 @@ class VINView {
         this.errorMessage.textContent = '';
 
         // Navigate to simulator after brief delay (to allow user to see the result)
-        setTimeout(() => {
-            this.navigateToSimulator(vehicleData.vin);
-        }, 2000);
+        if (vehicleData.vin) {
+            setTimeout(() => {
+                this.navigateToSimulator(vehicleData.vin);
+            }, 2000);
+        } else {
+            console.error('VIN not available in vehicle data');
+        }
     }
 
     /**

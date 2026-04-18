@@ -7,6 +7,8 @@ use App\Models\TestProfile;
 use App\Models\SensorLog;
 use App\Models\QcReport;
 use Illuminate\Http\Request;
+use Illuminate\Http\Client\RequestException;
+use Illuminate\Support\Facades\Http;
 use Barryvdh\DomPDF\Facade\Pdf;
 
 class SimulatorController extends Controller
@@ -26,12 +28,125 @@ class SimulatorController extends Controller
      */
     public function show($vin)
     {
-        // Retrieve the vehicle by VIN, or abort with 404 if not found
-        $vehicle = Vehicle::where('vin_number', strtoupper($vin))->firstOrFail();
+        $normalizedVin = strtoupper(trim($vin));
 
-        // Define mock test profiles for the three electrical components
-        // Each profile contains: component name, min voltage, max voltage, and unit
-        $testProfiles = [
+        // 1) Hybrid approach: check local DB first
+        $vehicle = Vehicle::where('vin_number', $normalizedVin)->first();
+
+        // 2) Fallback to NHTSA API and persist if vehicle is missing
+        if (!$vehicle) {
+            $decodedVehicle = $this->fetchVehicleFromNhtsa($normalizedVin);
+
+            if (!$decodedVehicle) {
+                abort(404, 'Vehicle data not found for this VIN.');
+            }
+
+            $vehicle = Vehicle::create([
+                'vin_number' => $normalizedVin,
+                'make' => $decodedVehicle['make'],
+                'model' => $decodedVehicle['model'],
+                'production_year' => $decodedVehicle['production_year'],
+                'production_status' => 'Testing In-Progress',
+            ]);
+        }
+
+        // Get test profile from DB by model; fallback to defaults when empty
+        $profilesFromDb = TestProfile::where('vehicle_model', $vehicle->model)
+            ->get(['component_name', 'min_voltage', 'max_voltage']);
+
+        $testProfiles = $profilesFromDb->map(function ($profile) {
+            return [
+                'component_name' => $profile->component_name,
+                'min_voltage' => (float) $profile->min_voltage,
+                'max_voltage' => (float) $profile->max_voltage,
+                'unit' => 'V',
+                'description' => "{$profile->component_name} Electrical Check",
+            ];
+        })->values()->all();
+
+        if (empty($testProfiles)) {
+            $testProfiles = $this->getDefaultTestProfiles();
+        }
+
+        // Return the simulator view with vehicle and test profile data
+        return view('simulator', [
+            'vehicle' => $vehicle,
+            'testProfiles' => $testProfiles,
+        ]);
+    }
+
+    /**
+     * Fetch and parse VIN information from NHTSA.
+     *
+     * @param string $vin
+     * @return array|null
+     */
+    private function fetchVehicleFromNhtsa(string $vin): ?array
+    {
+        try {
+            $response = Http::timeout(10)
+                ->withoutVerifying() // Local dev workaround for SSL/cacert issues (cURL error 77)
+                ->acceptJson()
+                ->get("https://vpic.nhtsa.dot.gov/api/vehicles/decodevin/{$vin}", [
+                    'format' => 'json',
+                ]);
+        } catch (RequestException $e) {
+            return null;
+        } catch (\Throwable $e) {
+            return null;
+        }
+
+        if (!$response->ok()) {
+            return null;
+        }
+
+        $results = $response->json('Results', []);
+
+        if (!is_array($results) || empty($results)) {
+            return null;
+        }
+
+        $make = null;
+        $model = null;
+        $year = null;
+
+        foreach ($results as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+
+            if ((int) ($item['VariableId'] ?? 0) === 26 && !empty($item['Value'])) {
+                $make = $item['Value'];
+            }
+
+            if ((int) ($item['VariableId'] ?? 0) === 28 && !empty($item['Value'])) {
+                $model = $item['Value'];
+            }
+
+            if ((int) ($item['VariableId'] ?? 0) === 29 && !empty($item['Value'])) {
+                $year = (int) $item['Value'];
+            }
+        }
+
+        if (!$make || !$model) {
+            return null;
+        }
+
+        return [
+            'make' => $make,
+            'model' => $model,
+            'production_year' => $year ?: (int) date('Y'),
+        ];
+    }
+
+    /**
+     * Fallback profiles used when no model-specific profiles exist in DB.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private function getDefaultTestProfiles(): array
+    {
+        return [
             [
                 'component_name' => 'Headlight',
                 'min_voltage' => 11.5,
@@ -54,12 +169,6 @@ class SimulatorController extends Controller
                 'description' => 'Supplemental Restraint System Control Unit',
             ],
         ];
-
-        // Return the simulator view with vehicle and test profile data
-        return view('simulator', [
-            'vehicle' => $vehicle,
-            'testProfiles' => $testProfiles,
-        ]);
     }
 
     /**

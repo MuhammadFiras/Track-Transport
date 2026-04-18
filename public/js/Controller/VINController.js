@@ -57,9 +57,12 @@ class VINController {
         if (result.success) {
             // Success: render the vehicle data in the results card
             this.view.renderResults(result.data);
+            const resolvedVin = (result.data?.vin || vin).toUpperCase();
+            window.location.href = `/simulator/${encodeURIComponent(resolvedVin)}`;
         } else {
-            // Error: display error message on the dashboard
-            this.view.showError(result.error);
+            // Fallback: let backend hybrid flow handle DB-first + NHTSA lookup
+            const resolvedVin = vin.toUpperCase();
+            window.location.href = `/simulator/${encodeURIComponent(resolvedVin)}`;
         }
     }
 
