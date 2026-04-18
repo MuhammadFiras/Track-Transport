@@ -80,7 +80,7 @@ class VINView {
 
     /**
      * Renders the vehicle data in the results card
-     * @param {object} vehicleData - Object containing { make, model, year }
+     * @param {object} vehicleData - Object containing { make, model, year, vin }
      */
     renderResults(vehicleData) {
         this.hideLoadingState();
@@ -96,6 +96,19 @@ class VINView {
         // Clear error messages
         this.errorMessage.style.display = 'none';
         this.errorMessage.textContent = '';
+
+        // Navigate to simulator after brief delay (to allow user to see the result)
+        setTimeout(() => {
+            this.navigateToSimulator(vehicleData.vin);
+        }, 2000);
+    }
+
+    /**
+     * Navigate to the electrical test simulator for the scanned vehicle
+     * @param {string} vin - The Vehicle Identification Number
+     */
+    navigateToSimulator(vin) {
+        window.location.href = `/simulator/${encodeURIComponent(vin)}`;
     }
 
     /**
